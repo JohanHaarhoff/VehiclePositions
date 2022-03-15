@@ -19,7 +19,7 @@ namespace VehiclePositions
             // My focus is the finding of closest vehicle positions, but this should be improved.
             // It is possible the supplied benchmark just reads it in without creating a structure, this methods readtime seems faster...
             startTime = DateTime.Now;
-            TechTest doTest = new TechTest(@"C:\Users\JohanHaarhoff\source\repos\JohanHaarhoff\VehiclePositions\VehiclePositions.dat");
+            TechTest doTest = new TechTest(@"..\..\VehiclePositions.dat");
             readTime = DateTime.Now;
             doTest.BenchMark();
             finishTime = DateTime.Now;
