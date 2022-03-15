@@ -8,17 +8,15 @@ using System.Runtime.InteropServices;
 
 namespace VehiclePositions
 {
-    public class VehiclePositionData
+    public class VehiclePositionPoint
     {
         public int PositionId; // Int32
         public string VehicleRegistration; // Null terminated ASCII string
-        public float Latitude; // 4 byte
-        public float Longitude; // 4 byte
+        public double Latitude; // 4 byte
+        public double Longitude; // 4 byte
         public UInt64 RecordedTimeUTC; 
 
-        public VehiclePositionData() { }
-
-        public VehiclePositionData(int positionId, string vehicleRegistration, float latitude, float longitude, UInt64 recordedTimeUTC)
+        public VehiclePositionPoint(int positionId, string vehicleRegistration, double latitude, double longitude, UInt64 recordedTimeUTC)
         {
             PositionId = positionId;
             VehicleRegistration = vehicleRegistration;
@@ -27,49 +25,42 @@ namespace VehiclePositions
             RecordedTimeUTC = recordedTimeUTC;
         }
 
-        public VehiclePositionData SetVehiclePositionData(int positionId, string vehicleRegistration, float latitude, float longitude, UInt64 recordedTimeUTC)
-        {
-            PositionId = positionId;
-            VehicleRegistration = vehicleRegistration;
-            Latitude = latitude;
-            Longitude = longitude;
-            RecordedTimeUTC = recordedTimeUTC;
-
-            return this;
-        }
     }
 
-    public class VehiclePositionList : List<VehiclePositionData>
-    {
-        // Add variables for bins here. 
-    }
+    public class VehiclePositionList : List<VehiclePositionPoint> { }
 
     public class TechTest
     {
-        public VehiclePositionList PositionData;
+        // Latitudes are from +90 to -90
+        // Longitudes are from -180 to + 180
+        // Min in data: -102.100843, 31.895839
+        // Max in data:  -94.792232, 35.195739
 
-        //public List<Tuple<float, float>> PositionList = new List<Tuple<float, float>>()
-        // { new Tuple<float, float>(34.544909f, -102.100843f),
-        //   new Tuple<float, float>(32.345544f, -99.123124f),
-        //   new Tuple<float, float>(33.234235f, -100.214124f),
-        //   new Tuple<float, float>(35.195739f, -95.348899f),
-        //   new Tuple<float, float>(31.895839f, -97.789573f),
-        //   new Tuple<float, float>(32.895839f, -101.789573f),
-        //   new Tuple<float, float>(34.115839f, -100.225732f),
-        //   new Tuple<float, float>(32.335839f, -99.992232f),
-        //   new Tuple<float, float>(33.535339f, -94.792232f),
-        //   new Tuple<float, float>(32.234235f, -100.222222f) };
+        private readonly double MaxLatitude = 90;
+        private readonly double MaxLongitude = 180;
 
-        public List<(float Latitude, float Longitude)> PositionList;
+        private List<(double Latitude, double Longitude)> PositionList;
 
-        public VehiclePositionList ClosestPositionList;
+        public VehiclePositionList ClosestVehiclePositionList;
+        private VehiclePositionList VehiclePositionData;
+        private VehiclePositionList[,] VehiclePositionDataBins;
+
+        private int NumberOfIncrements;
+        private double LatitudeIncrementSize;
+        private double LongitudeIncrementSize;
+        private int LatitudeIndexNumber(double latitude) => (int)((latitude + MaxLatitude) / LatitudeIncrementSize);
+        private int LongitudeIndexNumber(double longitude) => (int)((longitude + MaxLongitude) / LongitudeIncrementSize);
+        private double LatitudeBinStart(int index) =>  (index * LatitudeIncrementSize - MaxLatitude);
+        private double LongitudeBinStart(int index) => (index * LongitudeIncrementSize - MaxLongitude);
+        private double LatitudeBinEnd(int index) =>  (LatitudeBinStart(index) + LatitudeIncrementSize);
+        private double LongitudeBinEnd(int index) => (LongitudeBinStart(index) + LongitudeIncrementSize);
 
         public TechTest(string fileName)
         {
-            PositionData = Read(fileName);
-            ClosestPositionList = new VehiclePositionList();
+            VehiclePositionData = Read(fileName);
+            ClosestVehiclePositionList = new VehiclePositionList();
 
-            PositionList = new List<(float Latitude, float Longitude)>
+            PositionList = new List<(double Latitude, double Longitude)>
          { (34.544909f, -102.100843f),
            (32.345544f, -99.123124f),
            (33.234235f, -100.214124f),
@@ -93,23 +84,22 @@ namespace VehiclePositions
             VehiclePositionList toReturn = new VehiclePositionList();
             int positionId;
             string vehicleRegistration = new string('0', 256);
-            float latitude;
-            float longitude;
+            double latitude;
+            double longitude;
             UInt64 recordedTimeUTC;
             BinaryReader binReader = new BinaryReader(File.Open(fileName, FileMode.Open));
 
-            VehiclePositionData dataPoint = new VehiclePositionData();
             try
             {
                 while (true)
                 {
                     positionId = binReader.ReadInt32();
                     vehicleRegistration = new string(binReader.ReadChars(registrationStringLength));
-                    latitude = binReader.ReadSingle();
-                    longitude = binReader.ReadSingle();
+                    latitude = (double)binReader.ReadSingle();
+                    longitude = (double)binReader.ReadSingle();
                     recordedTimeUTC = binReader.ReadUInt64();
                     
-                    toReturn.Add(new VehiclePositionData(positionId, vehicleRegistration, latitude, longitude, recordedTimeUTC));
+                    toReturn.Add(new VehiclePositionPoint(positionId, vehicleRegistration, latitude, longitude, recordedTimeUTC));
                 }
             }
             catch (EndOfStreamException)
@@ -121,105 +111,184 @@ namespace VehiclePositions
             return (toReturn);
         }
 
-        public VehiclePositionList Read3(string fileName)
+        // This should be the big circle distance.
+        private double AngularDistance(double lat1, double long1, double lat2, double long2)
         {
-            // The data set does conform to this, with real data it might be dangerous.
-            // It does avoid an iterative loop to find the end of string '\0' as BinaryReader.ReadString 
-            // does not support this string termination.
-            // The 10th character is '\0'.
-            int registrationStringLength = 10;
-
-            VehiclePositionList toReturn = (VehiclePositionList)new List<VehiclePositionData>(2000000);
-            BinaryReader binReader = new BinaryReader(File.Open(fileName, FileMode.Open));
-
-            VehiclePositionData dataPoint = new VehiclePositionData();
-            try
-            {
-                //while (true)
-                for(int i = 0; i < 2000000; i++)
-                {
-                    dataPoint.PositionId = binReader.ReadInt32();
-                    dataPoint.VehicleRegistration = new string(binReader.ReadChars(registrationStringLength));
-                    dataPoint.Latitude = binReader.ReadSingle();
-                    dataPoint.Longitude = binReader.ReadSingle();
-                    dataPoint.RecordedTimeUTC = binReader.ReadUInt64();
-                    
-                    toReturn[i] = dataPoint;//. (positionId, vehicleRegistration, latitude, longitude, recordedTimeUTC));
-                }
-            }
-            catch (EndOfStreamException)
-            {
-                // This simply means the end of the string has been reached.
-            }
-
-            binReader.Close();
-            return (toReturn);
+            return Math.Sqrt(Math.Pow(lat1 - lat2, 2) + Math.Pow(long1 - long2, 2));
         }
-
-        public VehiclePositionList Read2(string fileName)
-        {
-            VehiclePositionList toReturn = new VehiclePositionList();
-
-            BinaryReader binReader = new BinaryReader(File.Open(fileName, FileMode.Open));
-
-            try
-            {
-                while (true) 
-                {
-                    toReturn.Add(FromBinaryReaderBlock(binReader));
-                }
-            }
-            catch (EndOfStreamException)
-            {
-                // This simply means the end of the string has been reached.
-            }
-
-            binReader.Close();
-            return (toReturn);
-        }
-
-        public VehiclePositionData FromBinaryReaderBlock(BinaryReader br)
-        {
-            byte[] buff = br.ReadBytes(Marshal.SizeOf(typeof(VehiclePositionData)));
-            GCHandle handle = GCHandle.Alloc(buff, GCHandleType.Pinned);
-            VehiclePositionData vpd = (VehiclePositionData)Marshal.PtrToStructure(handle.AddrOfPinnedObject(), typeof(VehiclePositionData));
-            handle.Free();
-            return vpd;
-        }
-
-        public float AngularDistance(float lat1, float long1, float lat2, float long2)
-        {
-            return (float)Math.Sqrt(Math.Pow(lat1 - lat2, 2) + Math.Pow(long1 - long2, 2));
-        }
-
+       
+        /// <summary>
+        /// Iterates over whole data set.
+        /// </summary>
         public void BenchMark()
         {
-            VehiclePositionData closestPosition;
-            float minimumDistance;
+            VehiclePositionPoint closestPosition;
+            double minimumDistance;
 
             foreach(var position in PositionList)
             {
-                closestPosition = PositionData[0];
-                minimumDistance = float.MaxValue;
+                closestPosition = VehiclePositionData[0];
+                minimumDistance = double.MaxValue;
 
-                foreach(var dataPoint in PositionData)
+                foreach(var dataPoint in VehiclePositionData)
                 {
-                    float dist = AngularDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
+                    double dist = AngularDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
                     if(dist < minimumDistance)
                     { 
                         closestPosition = dataPoint;
                         minimumDistance = dist;
                     }
                 }
-                ClosestPositionList.Add(closestPosition);
-                //Console.WriteLine($"Position: {position.Item1} {position.Item2}, closest: {closestPosition.Latitide} {closestPosition.Longitude}");
+                ClosestVehiclePositionList.Add(closestPosition);
             }
         }
 
-        /// Ways to improve performance
-        /// 1) Search for all ten vehicles at the same time.
-        /// 2) Build subsets 
-        /// 2.1) Latitude: -90 to 90
-        /// 2.2) Longitude: -180 to 180
+        /// <summary>
+        /// Creates bins with the data in, only searches in the relevant bin. Thereafter if the distance to a bin boundary is smaller than the 
+        /// distance to the closest 
+        /// </summary>
+        public void CreateBinsArray()
+        { 
+            #region Could be in the constructor - leaving here for benchmarking now.
+            // Increasing the number of increments used for the bins increase the time taken to create the bins, and reduces the time taken to search
+            // for the closest positions. The user will have to tune this to their amount of data V.S. number of positions to search.
+            NumberOfIncrements = 1440;//360;
+            LatitudeIncrementSize = (2.0 * MaxLatitude)/NumberOfIncrements;
+            LongitudeIncrementSize = (2.0 * MaxLongitude)/NumberOfIncrements;
+
+            // [Latitude][Longitude]
+            VehiclePositionDataBins = new VehiclePositionList[NumberOfIncrements, NumberOfIncrements];
+            for(int latI = 0; latI < NumberOfIncrements; latI ++)
+                for(int longI = 0; longI < NumberOfIncrements; longI ++)
+                    VehiclePositionDataBins[latI, longI] = new VehiclePositionList() { };
+            #endregion
+
+            foreach(var position in VehiclePositionData)
+                VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude), LongitudeIndexNumber(position.Longitude)].Add(position);
+        }
+
+        public void VerifyBins() 
+        { 
+            int numberOfBins = 0;
+            int totalInBins = 0;
+            for(int latI = 0; latI < NumberOfIncrements; latI ++)
+                for(int longI = 0; longI < NumberOfIncrements; longI ++)
+                {
+                    if(VehiclePositionDataBins[latI, longI].Count != 0) 
+                    { 
+                        numberOfBins++;
+                        totalInBins += VehiclePositionDataBins[latI, longI].Count;
+                     }
+                }
+
+            Console.WriteLine($"Number of bins: {numberOfBins}, total data points in bins: {totalInBins}");
+        }
+
+        public void BenchMarkBins()
+        {
+            VehiclePositionPoint closestVehiclePosition;
+            double minimumDistance;
+
+            foreach(var position in PositionList)
+            {
+                minimumDistance = double.MaxValue;
+                closestVehiclePosition = VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude), LongitudeIndexNumber(position.Longitude)][0];
+
+                // Find the vehicle position closest to the position, searching in the bin of vehicle positions.
+                FindClosestPosition(position, VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude), LongitudeIndexNumber(position.Longitude)], 
+                                    ref minimumDistance, ref closestVehiclePosition);
+
+                // Check if adjacent bins must be searched, if so seach there as well.
+                VehiclePositionList extraList = new VehiclePositionList();
+                if(CloserToBoundary(position, minimumDistance, extraList))
+                    FindClosestPosition(position, extraList, ref minimumDistance, ref closestVehiclePosition);
+
+                ClosestVehiclePositionList.Add(closestVehiclePosition);
+            }
+
+            // Find the vehicle position closest to the position, searching in the bin provided.
+            void FindClosestPosition((double Latitude, double Longitude) position, VehiclePositionList binList, ref double mD, ref VehiclePositionPoint cP)
+            { 
+                foreach(var dataPoint in binList)
+                {
+                    double dist = AngularDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
+                    if(dist < mD)
+                    { 
+                        cP = dataPoint;
+                        mD = dist;
+                    }
+                }
+            }
+
+            // If the position is closer to any bin boundary, add the bin on that boundary to a list that will be used to find the closest.
+            bool CloserToBoundary((double Latitude, double Longitude) position, double mD, VehiclePositionList listToAddTo)
+            {
+                bool toReturn = false;
+                int latI = LatitudeIndexNumber(position.Latitude);
+                int longI = LongitudeIndexNumber(position.Longitude);
+
+                //Distance + latitude
+                double distPlusLatitude = AngularDistance(position.Latitude, position.Longitude, LatitudeBinEnd(latI), position.Longitude);
+                //Distance - lat
+                double distMinLatitude = AngularDistance(position.Latitude, position.Longitude, LatitudeBinStart(latI), position.Longitude);
+                //Distance + long
+                double distPlusLongitude = AngularDistance(position.Latitude, position.Longitude, position.Latitude, LongitudeBinStart(longI));
+                //Distance - long
+                double distMinLongitude = AngularDistance(position.Latitude, position.Longitude, position.Latitude, LongitudeBinEnd(longI));
+
+
+                if(distPlusLatitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude) + 1, LongitudeIndexNumber(position.Longitude)]);
+                    toReturn = true;
+                }
+                if(distMinLatitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude) - 1, LongitudeIndexNumber(position.Longitude)]);
+                    toReturn = true;
+                }
+                if(distPlusLongitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude), LongitudeIndexNumber(position.Longitude) + 1]);
+                    toReturn = true;
+                }
+                if(distPlusLongitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude), LongitudeIndexNumber(position.Longitude) - 1]);
+                    toReturn = true;
+                }
+
+                if(distPlusLatitude < mD && distPlusLongitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude) + 1, LongitudeIndexNumber(position.Longitude) + 1]);
+                    toReturn = true;
+                }
+                if(distPlusLatitude < mD && distMinLongitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude) + 1, LongitudeIndexNumber(position.Longitude) - 1]);
+                    toReturn = true;
+                }
+                if(distMinLatitude < mD && distPlusLongitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude) - 1, LongitudeIndexNumber(position.Longitude) + 1]);
+                    toReturn = true;
+                }
+                if(distMinLatitude < mD && distMinLongitude < mD) 
+                {
+                    listToAddTo.AddRange(VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude) - 1, LongitudeIndexNumber(position.Longitude) - 1]);
+                    toReturn = true;
+                }
+
+                return toReturn;
+            }
+        }
+
+        public void WriteResultsToScreen()
+        {
+            Console.WriteLine("\nResults");
+            for (int i = 0; i < PositionList.Count; i++)
+                Console.WriteLine($"{PositionList[i].Latitude}, {PositionList[i].Longitude}, " +
+                                  $"{ClosestVehiclePositionList[i].Latitude}, {ClosestVehiclePositionList[i].Longitude}");
+        }
     }
 }

@@ -10,24 +10,42 @@ namespace VehiclePositions
     {
         static void Main(string[] args)
         {
-            /// This is quite slow to the supplied benchmark. 
-            /// They could be using a more raw format?
-            /// Not BinaryReader?
-            /// pre-declaring the list size?
-            Console.WriteLine("Read");
-            DateTime startTime = DateTime.Now;
-            TechTest doTest = new TechTest(@"C:\Users\JohanHaarhoff\source\repos\JohanHaarhoff\VehiclePositions\VehiclePositions.dat");
-            Console.WriteLine((DateTime.Now - startTime).TotalMilliseconds);
+            DateTime startTime;
+            DateTime readTime;
+            DateTime binTime;
+            DateTime finishTime;
 
-            Console.WriteLine("\nBenchmark");
+            // This is quite slow compared to the supplied benchmark. 
+            // My focus is the finding of closest vehicle positions, but this should be improved.
+            // It is possible the supplied benchmark just reads it in without creating a structure, this methods readtime seems faster...
             startTime = DateTime.Now;
+            TechTest doTest = new TechTest(@"C:\Users\JohanHaarhoff\source\repos\JohanHaarhoff\VehiclePositions\VehiclePositions.dat");
+            readTime = DateTime.Now;
             doTest.BenchMark();
-            Console.WriteLine((DateTime.Now - startTime).TotalMilliseconds);
+            finishTime = DateTime.Now;
 
-            Console.WriteLine("\nResults");
-            for (int i = 0; i < doTest.PositionList.Count; i++)
-                Console.WriteLine($"{doTest.PositionList[i].Latitude}, {doTest.PositionList[i].Longitude}, " +
-                                  $"{doTest.ClosestPositionList[i].Latitude}, {doTest.ClosestPositionList[i].Longitude}");
+            Console.WriteLine($"Data file read execution time : {(readTime - startTime).TotalMilliseconds, 6:F0}");
+            Console.WriteLine($"Closest position calculation execution time : {( finishTime - readTime).TotalMilliseconds, 6:F0}");
+            Console.WriteLine($"Total execution time : {( finishTime - startTime).TotalMilliseconds, 6:F0}");
+
+            doTest.WriteResultsToScreen();
+
+            Console.WriteLine("\n*****************************************\n");
+            startTime = DateTime.Now;
+            TechTest doTestBins = new TechTest(@"C:\Users\JohanHaarhoff\source\repos\JohanHaarhoff\VehiclePositions\VehiclePositions.dat");
+            readTime = DateTime.Now;
+            doTestBins.CreateBinsArray();
+            binTime = DateTime.Now;
+            doTestBins.BenchMarkBins();
+            finishTime = DateTime.Now;
+
+            Console.WriteLine($"Data file read execution time : {(readTime - startTime).TotalMilliseconds, 6:F0}");
+            Console.WriteLine($"Bin creation time : {( binTime - readTime).TotalMilliseconds, 6:F0}");
+            Console.WriteLine($"Closest position calculation execution time : {( finishTime - binTime).TotalMilliseconds, 6:F0}");
+            Console.WriteLine($"Total execution time : {( finishTime - startTime).TotalMilliseconds, 6:F0}");
+
+            doTestBins.VerifyBins();
+            doTestBins.WriteResultsToScreen();
         }
     }
 }
