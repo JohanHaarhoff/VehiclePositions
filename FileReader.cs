@@ -75,7 +75,7 @@ namespace VehiclePositions
 
         public VehiclePositionList Read(string fileName)
         {
-            // The data set does conform to this, with real data it might be dangerous.
+            // The data set does conform to this, with real world data it might be dangerous.
             // It does avoid an iterative loop to find the end of string '\0' as BinaryReader.ReadString 
             // does not support this string termination.
             // The 10th character is '\0'.
@@ -111,12 +111,28 @@ namespace VehiclePositions
             return (toReturn);
         }
 
-        // This should be the big circle distance.
+        // This is not as accurate as the great circle distance, but significantly faster.
+        // From the times from the provided methods it is difficult to match the method used there,
+        // however the time improvement from the bin method is clear especially with the more computationally
+        // intensive great circle distand calculation.
+        // With the example data provided the results are the same between the two distance calculation methods
+        // are the same.
         private double AngularDistance(double lat1, double long1, double lat2, double long2)
         {
             return Math.Sqrt(Math.Pow(lat1 - lat2, 2) + Math.Pow(long1 - long2, 2));
         }
        
+        private double GreatCircleDistance(double lat1, double long1, double lat2, double long2)
+        {
+            return RadiansToDegrees(Math.Acos(Math.Sin(DegreesToRadians(lat1)) * Math.Sin(DegreesToRadians(lat2)) +
+                                              Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2)) * 
+                                              Math.Cos(DegreesToRadians(long2-long1))));
+
+            double DegreesToRadians(double degrees) => (degrees/180.0) * Math.PI;
+            double RadiansToDegrees(double radians) => (radians/Math.PI) * 180.0;
+            
+        }
+
         /// <summary>
         /// Iterates over whole data set.
         /// </summary>
@@ -132,7 +148,8 @@ namespace VehiclePositions
 
                 foreach(var dataPoint in VehiclePositionData)
                 {
-                    double dist = AngularDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
+                    //double dist = AngularDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
+                    double dist = GreatCircleDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
                     if(dist < minimumDistance)
                     { 
                         closestPosition = dataPoint;
@@ -167,6 +184,9 @@ namespace VehiclePositions
                 VehiclePositionDataBins[LatitudeIndexNumber(position.Latitude), LongitudeIndexNumber(position.Longitude)].Add(position);
         }
 
+        /// <summary>
+        /// Used to make sure the amount of bins sums up to 2000000
+        /// </summary>
         public void VerifyBins() 
         { 
             int numberOfBins = 0;
@@ -211,7 +231,7 @@ namespace VehiclePositions
             { 
                 foreach(var dataPoint in binList)
                 {
-                    double dist = AngularDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
+                    double dist = GreatCircleDistance(dataPoint.Latitude, dataPoint.Longitude, position.Latitude, position.Longitude);
                     if(dist < mD)
                     { 
                         cP = dataPoint;
